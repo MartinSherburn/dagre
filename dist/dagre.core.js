@@ -549,10 +549,11 @@ var graphNumAttrs = ["nodesep", "edgesep", "ranksep", "marginx", "marginy"],
     graphAttrs = ["acyclicer", "ranker", "rankdir", "align"],
     nodeNumAttrs = ["width", "height"],
     nodeDefaults = { width: 0, height: 0 },
-    edgeNumAttrs = ["minlen", "weight", "width", "height", "labeloffset"],
+    edgeNumAttrs = ["minlen", "weight", "width", "height", "labeloffset", "outindex", "inindex"],
     edgeDefaults = {
       minlen: 1, weight: 1, width: 0, height: 0,
-      labeloffset: 10, labelpos: "r"
+      labeloffset: 10, labelpos: "r",
+      outindex: 0, inindex: 0,
     },
     edgeAttrs = ["labelpos"];
 
@@ -1052,14 +1053,16 @@ function normalizeEdge(g, e) {
       attrs.dummy = "edge-label";
       attrs.labelpos = edgeLabel.labelpos;
     }
-    g.setEdge(v, dummy, { weight: edgeLabel.weight }, name);
+    g.setEdge(v, dummy, { weight: edgeLabel.weight,
+       outindex: edgeLabel.outindex, inindex: edgeLabel.inindex }, name);
     if (i === 0) {
       g.graph().dummyChains.push(dummy);
     }
     v = dummy;
   }
 
-  g.setEdge(v, w, { weight: edgeLabel.weight }, name);
+  g.setEdge(v, w, { weight: edgeLabel.weight,
+     outindex: edgeLabel.outindex, inindex: edgeLabel.inindex }, name);
 }
 
 function undo(g) {
@@ -1153,8 +1156,11 @@ function barycenter(g, movable) {
       var result = _.reduce(inV, function(acc, e) {
         var edge = g.edge(e),
             nodeU = g.node(e.v);
+        var order = nodeU.order;
+        if (edge.index)
+          order += edge.index * 0.01;
         return {
-          sum: acc.sum + (edge.weight * nodeU.order),
+          sum: acc.sum + (edge.weight * order),
           weight: acc.weight + edge.weight
         };
       }, { sum: 0, weight: 0 });
@@ -1223,7 +1229,12 @@ function buildLayerGraph(g, rank, relationship) {
         var u = e.v === v ? e.w : e.v,
             edge = result.edge(u, v),
             weight = !_.isUndefined(edge) ? edge.weight : 0;
-        result.setEdge(u, v, { weight: g.edge(e).weight + weight });
+        var edgelabel = g.edge(e);
+        var index = e.v === v ? edgelabel.inindex : edgelabel.outindex;
+        var edgeLabel = { weight: edgelabel.weight + weight };
+        if (index)
+          edgeLabel.index = index;
+        result.setEdge(u, v, edgeLabel);
       });
 
       if (_.has(node, "minRank")) {
@@ -1276,6 +1287,42 @@ function crossCount(g, layering) {
 }
 
 function twoLayerCrossCount(g, northLayer, southLayer) {
+  // Modified cross count function to take into account outindex and inindex
+  var northPos = _.zipObject(northLayer,
+               _.map(northLayer, function (v, i) { return i; }));
+  var southPos = _.zipObject(southLayer,
+               _.map(southLayer, function (v, i) { return i; }));
+  var edges = _.flatten(_.map(northLayer, function (v) {
+    return _.map(g.outEdges(v), function (e) {
+      var edge = g.edge(e);
+      var north = northPos[e.v];
+      var south = southPos[e.w];
+      if (edge.outindex)
+        north += edge.outindex * 0.01;
+      if (edge.inindex)
+        south += edge.inindex * 0.01;
+      return { northPos: north, southPos: south, weight: edge.weight };
+    });
+  }));
+
+  // Calculate the weighted crossings
+  var cc = 0;
+  var i, j;
+  for (i = 0; i < edges.length; ++i) {
+    var edge1 = edges[i];
+    for (j = i + 1; j < edges.length; ++j) {
+      var edge2 = edges[j];
+      if ((edge1.northPos > edge2.northPos) && (edge1.southPos < edge2.southPos) ||
+          (edge1.northPos < edge2.northPos) && (edge1.southPos > edge2.southPos)) {
+        cc += edge1.weight * edge2.weight;
+      }
+    }
+  }
+
+  return cc;
+}
+
+/*function twoLayerCrossCount(g, northLayer, southLayer) {
   // Sort all of the edges between the north and south layers by their position
   // in the north layer and then the south. Map these edges to the position of
   // their head in the south layer.
@@ -1314,7 +1361,7 @@ function twoLayerCrossCount(g, northLayer, southLayer) {
   }));
 
   return cc;
-}
+}*/
 
 },{"../lodash":10}],17:[function(require,module,exports){
 "use strict";
@@ -2898,7 +2945,7 @@ function notime(name, fn) {
 }
 
 },{"./graphlib":7,"./lodash":10}],30:[function(require,module,exports){
-module.exports = "0.7.4";
+module.exports = "0.7.5-pre";
 
 },{}]},{},[1])(1)
 });
